@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>报关单 PDF → Excel 智能导入</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:#f0f4f8;color:#1a202c}
+.header{background:linear-gradient(135deg,#1e3a5f,#2d5a87);color:#fff;padding:16px 24px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
+.header h1{font-size:19px;font-weight:700}
+.header .actions{display:flex;gap:8px}
+.btn{padding:8px 18px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:.2s;white-space:nowrap}
+.btn-green{background:#48bb78;color:#fff}
+.btn-green:hover{background:#38a169}
+.btn-gray{background:rgba(255,255,255,.2);color:#fff}
+.btn-gray:hover{background:rgba(255,255,255,.3)}
+.btn-outline{background:#fff;color:#2d5a87;border:1px solid #cbd5e0}
+.btn-outline:hover{background:#f7fafc}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.container{max-width:100%;padding:12px 16px}
+.toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px}
+.upload-inline{display:flex;align-items:center;gap:8px}
+.upload-inline label{cursor:pointer;display:inline-flex;align-items:center;gap:6px;background:#fff;border:2px dashed #b0c4de;border-radius:8px;padding:10px 20px;font-size:14px;font-weight:600;color:#2d5a87;transition:.2s}
+.upload-inline label:hover{border-color:#2d5a87;background:#eef3f9}
+.upload-inline input{display:none}
+.stats{display:flex;gap:12px;align-items:center;font-size:13px;color:#4a5568}
+.stat{background:#fff;padding:6px 14px;border-radius:6px;box-shadow:0 1px 2px rgba(0,0,0,.05);text-align:center}
+.stat .num{font-size:18px;font-weight:700;color:#2d5a87}
+.stat .lbl{font-size:10px;color:#718096}
+.table-wrap{background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.06);overflow:hidden}
+.table-scroll{overflow-x:auto;max-height:65vh;overflow-y:auto}
+table{border-collapse:collapse;font-size:11px;min-width:100%}
+thead th{background:#2d5a87;color:#fff;padding:8px 5px;position:sticky;top:0;z-index:2;white-space:nowrap;text-align:center;font-weight:600}
+thead th:first-child{position:sticky;left:0;z-index:3;background:#1e3a5f}
+tbody td{padding:5px;border-bottom:1px solid #e2e8f0;text-align:center;white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis}
+tbody td:first-child{position:sticky;left:0;background:#fff;z-index:1;font-weight:500;max-width:200px}
+tbody tr:hover td{background:#f7fafc}
+tbody tr:hover td:first-child{background:#edf2f7}
+tbody td.col-wide{max-width:220px;text-align:left}
+.empty-hint{text-align:center;padding:60px 20px;color:#a0aec0}
+.empty-hint .icon{font-size:48px;margin-bottom:12px}
+.empty-hint p{font-size:14px}
+.status-bar{display:none;align-items:center;gap:10px;padding:10px 16px;background:#fff;border-radius:6px;margin-bottom:10px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+.status-bar.show{display:flex}
+.spinner{width:18px;height:18px;border:3px solid #e2e8f0;border-top-color:#2d5a87;border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+.progress-fill{height:4px;background:#48bb78;border-radius:2px;transition:.3s;width:0%}
+.progress-wrap{flex:1;background:#e2e8f0;border-radius:2px;height:4px;overflow:hidden}
+.error-toast{position:fixed;top:16px;right:16px;background:#fff5f5;color:#c53030;padding:12px 20px;border-radius:8px;border:1px solid #feb2b2;font-size:13px;z-index:99;display:none;max-width:380px}
+.error-toast.show{display:block}
+.row-actions button{font-size:10px;padding:2px 6px;background:none;border:1px solid #e2e8f0;border-radius:3px;cursor:pointer;color:#a0aec0}
+.row-actions button:hover{color:#e53e3e;border-color:#e53e3e}#accumTable tbody tr:hover td{background:#f7fafc}#accumTable tbody tr:hover td:first-child{background:#edf2f7}
+.footer{text-align:center;padding:16px;font-size:12px;color:#a0aec0;line-height:1.8}
+.tabs{display:flex;gap:0;margin-bottom:10px}
+.tab{padding:10px 24px;font-size:14px;font-weight:600;cursor:pointer;border:2px solid #e2e8f0;border-bottom:none;border-radius:8px 8px 0 0;background:#fff;color:#718096;transition:.2s}
+.tab.active{background:#2d5a87;color:#fff;border-color:#2d5a87}
+.tab:hover:not(.active){background:#edf2f7}
+.tab-badge{display:inline-block;background:#e53e3e;color:#fff;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:6px}
+.btn-add{font-size:10px;padding:3px 8px;background:#48bb78;color:#fff;border:none;border-radius:3px;cursor:pointer;font-weight:600}
+.btn-add:hover{background:#38a169}
+.btn-add:disabled{background:#cbd5e0;cursor:not-allowed}
+.accum-toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px}
+.tab-page{display:none}
+.tab-page.active{display:block}
+body.drag-active::after{content:'释放鼠标上传 PDF';position:fixed;inset:0;background:rgba(45,90,135,.18);border:4px dashed #2d5a87;color:#1e3a5f;font-size:28px;font-weight:700;display:flex;align-items:center;justify-content:center;z-index:80;pointer-events:none}
+tbody td .muted{color:#cbd5e0}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>📋 报关单导入工具</h1>
+  <div class="actions">
+    <button class="btn btn-outline" onclick="addAllToAccumulated()" id="btnAddAll">✓ 全部添加</button>
+    <button class="btn btn-outline" onclick="clearAll()">🗑 清空预览</button>
+    <button class="btn btn-green" id="btnExport" onclick="downloadExcel()" disabled>⬇ 导出预览</button>
+  </div>
+</div>
+<div class="container">
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('preview')">📤 识别预览 <span class="tab-badge" id="previewCount">0</span></div>
+    <div class="tab" onclick="switchTab('accumulated')">✅ 已添加数据 <span class="tab-badge" id="accumCount">0</span></div>
+  </div>
+
+  <!-- ====== 预览页 ====== -->
+  <div class="tab-page active" id="pagePreview">
+    <div class="toolbar">
+      <div class="upload-inline">
+        <label for="fileInput">📤 上传 PDF（可多选）</label>
+        <input type="file" id="fileInput" accept=".pdf" multiple>
+      </div>
+      <div class="stats">
+        <div class="stat"><div class="num" id="statFiles">0</div><div class="lbl">文件</div></div>
+        <div class="stat"><div class="num" id="statItems">0</div><div class="lbl">商品项</div></div>
+        <div class="stat"><div class="num" id="statValue">$0</div><div class="lbl">总价值</div></div>
+      </div>
+    </div>
+    <div class="status-bar" id="statusBar">
+      <div class="spinner"></div>
+      <span id="statusText">处理中...</span>
+      <div class="progress-wrap"><div class="progress-fill" id="progressFill"></div></div>
+    </div>
+    <div class="table-wrap">
+      <div class="table-scroll" id="tableScroll">
+        <table id="dataTable">
+          <thead id="tableHead"></thead>
+          <tbody id="tableBody">
+            <tr><td colspan="33" class="empty-hint">
+              <div class="icon">📤</div>
+              <p>点击上方按钮上传报关单 PDF，或拖拽文件到页面</p>
+              <p style="font-size:12px;margin-top:4px">支持批量上传，数据自动填入表格</p>
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== 已添加数据页 ====== -->
+  <div class="tab-page" id="pageAccumulated">
+    <div class="accum-toolbar">
+      <div class="stats">
+        <div class="stat"><div class="num" id="accStatFiles">0</div><div class="lbl">文件</div></div>
+        <div class="stat"><div class="num" id="accStatItems">0</div><div class="lbl">商品项</div></div>
+        <div class="stat"><div class="num" id="accStatValue">$0</div><div class="lbl">总价值</div></div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-outline" onclick="clearAccumulated()">🗑 清空已添加</button>
+        <button class="btn btn-green" id="btnExportAccum" onclick="downloadAccumulatedExcel()" disabled>⬇ 导出 Excel</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <div class="table-scroll" style="max-height:65vh">
+        <table id="accumTable">
+          <thead id="accumHead"></thead>
+          <tbody id="accumBody">
+            <tr><td colspan="33" class="empty-hint">
+              <div class="icon">📋</div>
+              <p>暂无已添加数据</p>
+              <p style="font-size:12px;margin-top:4px">在「识别预览」页点击「添加」按钮将数据加入此处</p>
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="error-toast" id="errorToast"></div>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+// ============ 模板列定义 (与 223123123123.xlsx 完全一致) ============
+const HEADERS = [
+  '文件名','境内发货人','海关编码','出境关别','出口日期','申报日期',
+  '境外收货人','运输方式','运输工具名称及航次号','提运单号',
+  '监管方式','合同协议号','离境口岸','包装种类','件数','毛重(千克)',
+  '净重(千克)','成交方式','运费','申报单位','项号','商品编号',
+  '商品名称及规格型号','数量','单位','单价','总价(美元)',
+  '原产国','境内货源地','最终目的国','运费','币制'
+];
+const STORAGE_KEY = 'customs_import_accumulated_rows_v1';
+const NUMERIC_EXPORT_COLUMNS = new Set([14, 15, 16, 23, 25, 26, 30]);
+
+// 全局数据: 每行 = { cells: [32个值], source: result对象 }
+let tableRows = [];
+let accumulatedRows = [];
+
+// ============ 标签页切换 ============
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-page').forEach(p => p.classList.remove('active'));
+  if (tab === 'preview') {
+    document.querySelectorAll('.tab')[0].classList.add('active');
+    document.getElementById('pagePreview').classList.add('active');
+  } else {
+    document.querySelectorAll('.tab')[1].classList.add('active');
+    document.getElementById('pageAccumulated').classList.add('active');
+    renderAccumulatedTable();
+  }
+}
+
+// ============ 添加到已添加数据 ============
+function addToAccumulated(index) {
+  const row = tableRows[index];
+  const added = pushUniqueAccumulated(row);
+  // 从预览中移除，避免同一行反复操作
+  tableRows.splice(index, 1);
+  saveAccumulatedRows();
+  renderTable();
+  renderAccumulatedTable();
+  updateStats();
+  updateAccumStats();
+  if (!added) toast('ℹ️ 该行已在「已添加数据」中，已跳过重复添加');
+  if (tableRows.length === 0) document.getElementById('btnExport').disabled = true;
+  document.getElementById('btnExportAccum').disabled = accumulatedRows.length === 0;
+}
+
+function addAllToAccumulated() {
+  if (tableRows.length === 0) return;
+  if (!confirm('确定将全部 ' + tableRows.length + ' 行添加到「已添加数据」？')) return;
+  let added = 0;
+  let skipped = 0;
+  for (const row of tableRows) {
+    if (pushUniqueAccumulated(row)) added++; else skipped++;
+  }
+  tableRows = [];
+  saveAccumulatedRows();
+  renderTable();
+  renderAccumulatedTable();
+  updateStats();
+  updateAccumStats();
+  if (skipped > 0) toast('已添加 ' + added + ' 行，跳过重复 ' + skipped + ' 行');
+  document.getElementById('btnExport').disabled = true;
+  document.getElementById('btnExportAccum').disabled = accumulatedRows.length === 0;
+}
+
+function removeFromAccumulated(index) {
+  accumulatedRows.splice(index, 1);
+  saveAccumulatedRows();
+  renderAccumulatedTable();
+  updateAccumStats();
+  if (accumulatedRows.length === 0) document.getElementById('btnExportAccum').disabled = true;
+}
+
+function clearAccumulated() {
+  if (accumulatedRows.length > 0 && !confirm('确定清空所有 ' + accumulatedRows.length + ' 行已添加数据？')) return;
+  accumulatedRows = [];
+  saveAccumulatedRows();
+  renderAccumulatedTable();
+  updateAccumStats();
+  document.getElementById('btnExportAccum').disabled = true;
+}
+
+function updateAccumStats() {
+  let totalItems = accumulatedRows.length;
+  let totalValue = 0;
+  for (const row of accumulatedRows) {
+    const v = parseFloat(row.cells[26]);
+    if (!isNaN(v)) totalValue += v;
+  }
+  document.getElementById('accStatFiles').textContent = new Set(accumulatedRows.map(r => r.cells[0])).size;
+  document.getElementById('accStatItems').textContent = totalItems;
+  document.getElementById('accStatValue').textContent = '$' + totalValue.toFixed(2);
+  document.getElementById('accumCount').textContent = totalItems;
+}
+
+// ============ 初始化表头 ============
+function initTableHead() {
+  let h = '<tr>';
+  for (const title of HEADERS) {
+    h += '<th>' + title + '</th>';
+  }
+  h += '<th style="width:80px">操作</th>';
+  h += '</tr>';
+  document.getElementById('tableHead').innerHTML = h;
+  // 已添加数据表头
+  let h2 = '<tr>';
+  for (const title of HEADERS) {
+    h2 += '<th>' + title + '</th>';
+  }
+  h2 += '<th style="width:50px">操作</th>';
+  h2 += '</tr>';
+  document.getElementById('accumHead').innerHTML = h2;
+}
+initTableHead();
+
+// ============ DOM 引用 ============
+const fileInput = document.getElementById('fileInput');
+const statusBar = document.getElementById('statusBar');
+const statusText = document.getElementById('statusText');
+const progressFill = document.getElementById('progressFill');
+const tableBody = document.getElementById('tableBody');
+const accumBody = document.getElementById('accumBody');
+const errorToast = document.getElementById('errorToast');
+const btnExport = document.getElementById('btnExport');
+const btnExportAccum = document.getElementById('btnExportAccum');
+
+// ============ 拖拽上传 ============
+function isPdfFile(file) {
+  return file && (file.type === 'application/pdf' || /\.pdf$/i.test(file.name || ''));
+}
+document.addEventListener('dragenter', e => { e.preventDefault(); document.body.classList.add('drag-active'); });
+document.addEventListener('dragover', e => { e.preventDefault(); });
+document.addEventListener('dragleave', e => {
+  if (e.target === document || e.clientX <= 0 || e.clientY <= 0 || e.clientX >= window.innerWidth || e.clientY >= window.innerHeight) {
+    document.body.classList.remove('drag-active');
+  }
+});
+document.addEventListener('drop', e => {
+  e.preventDefault();
+  document.body.classList.remove('drag-active');
+  handleFiles(Array.from(e.dataTransfer.files));
+});
+fileInput.addEventListener('change', e => {
+  handleFiles(Array.from(e.target.files));
+});
+
+loadAccumulatedRows();
+renderAccumulatedTable();
+updateAccumStats();
+btnExportAccum.disabled = accumulatedRows.length === 0;
+
+// ============ Toast ============
+function toast(msg, duration=4000) {
+  errorToast.textContent = msg;
+  errorToast.classList.add('show');
+  setTimeout(() => errorToast.classList.remove('show'), duration);
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[ch]));
+}
+
+function renderCellValue(value) {
+  if (value === undefined || value === null || value === '') return '<span class="muted">-</span>';
+  return escapeHtml(value).replace(/\n/g, '<br>');
+}
+
+function rowKey(row) {
+  return (row.cells || []).map(v => v == null ? '' : String(v).trim()).join('\u001f');
+}
+
+function pushUniqueAccumulated(row) {
+  const key = rowKey(row);
+  if (accumulatedRows.some(r => rowKey(r) === key)) return false;
+  accumulatedRows.push({ cells: [...row.cells], data: row.data, comm: row.comm });
+  return true;
+}
+
+function saveAccumulatedRows() {
+  try {
+    const slimRows = accumulatedRows.map(r => ({ cells: r.cells }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(slimRows));
+  } catch (err) {
+    console.warn('保存已添加数据失败', err);
+  }
+}
+
+function loadAccumulatedRows() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const rows = JSON.parse(raw);
+    if (!Array.isArray(rows)) return;
+    accumulatedRows = rows
+      .filter(r => Array.isArray(r.cells))
+      .map(r => ({ cells: r.cells.slice(0, HEADERS.length) }));
+  } catch (err) {
+    console.warn('读取已添加数据失败', err);
+    accumulatedRows = [];
+  }
+}
+
+// ============ 批量处理 ============
+async function handleFiles(inputFiles) {
+  const files = Array.from(inputFiles || []).filter(isPdfFile);
+  if (files.length === 0) {
+    toast('请上传 PDF 文件');
+    fileInput.value = '';
+    return;
+  }
+
+  statusBar.classList.add('show');
+  btnExport.disabled = true;
+  progressFill.style.width = '0%';
+  let addedRows = 0;
+  let failedFiles = 0;
+  
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    statusText.textContent = '处理 ' + (i+1) + '/' + files.length + ': ' + file.name;
+    progressFill.style.width = Math.round((i/files.length)*100) + '%';
+    
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const allItems = [];
+      for (let p = 1; p <= pdf.numPages; p++) {
+        const page = await pdf.getPage(p);
+        const vp = page.getViewport({ scale: 1 });
+        const tc = await page.getTextContent();
+        for (const item of tc.items) {
+          if (!item.str || !item.str.trim()) continue;
+          const tx = item.transform;
+          allItems.push({ x: tx[4], y: vp.height - tx[5], w: item.width||0, h: item.height||10, text: item.str.trim() });
+        }
+      }
+      allItems.sort((a, b) => Math.abs(a.y-b.y) < 2 ? a.x - b.x : a.y - b.y);
+      
+      const result = extractCustomsData(allItems, file.name);
+      const comms = result.commodities || [];
+      
+      if (comms.length === 0) {
+        // 无商品也加一行
+        addedRows += addTableRow(result, {}, false);
+      } else {
+        for (const comm of comms) {
+          addedRows += addTableRow(result, comm, false);
+        }
+      }
+    } catch (err) {
+      failedFiles++;
+      console.error(file.name, err);
+      toast('❌ ' + file.name + ': ' + err.message);
+    }
+  }
+  
+  progressFill.style.width = '100%';
+  statusBar.classList.remove('show');
+  renderTable();
+  updateStats();
+  btnExport.disabled = (tableRows.length === 0);
+  fileInput.value = '';
+  if (addedRows > 0 || failedFiles > 0) {
+    toast('处理完成：新增 ' + addedRows + ' 行' + (failedFiles ? '，失败 ' + failedFiles + ' 个文件' : ''), 3000);
+  }
+}
+
+// ============ 添加/刷新表格行 ============
+function addTableRow(data, comm, shouldRender = true) {
+  function fmtSpec(c) {
+    let d = c['商品名称'] || '';
+    const s = c['规格型号'] || '';
+    if (s) {
+      const lbs = ['品牌类型','出口享惠','用途','材质','品牌','规格尺寸'];
+      const pts = s.split('|');
+      for (let i = 0; i < pts.length; i++) { d += '\n' + (i<lbs.length?lbs[i]+':':'') + pts[i]; }
+    }
+    return d.trim();
+  }
+  
+  const cells = [
+    data.source_file || '', data['境内发货人'] || '', data['海关编码'] || '',
+    data['出境关别'] || '', data['out_date'] || '', data['申报日期'] || '',
+    data['境外收货人'] || '', data['运输方式'] || '', data['运输工具名称及航次号'] || '',
+    data['提运单号'] || '', data['监管方式'] || '', data['合同协议号'] || '',
+    data['离境口岸'] || '', data['包装种类'] || '', data['件数'] || '',
+    data['毛重'] || '', data['净重'] || '', data['成交方式'] || '',
+    data['运费'] || '', data['申报单位'] || '', comm['项号'] || '',
+    comm['商品编号'] || '', fmtSpec(comm), comm['数量'] || '', comm['单位'] || '',
+    comm['单价'] || '', comm['总价'] || '', comm['原产国'] || '',
+    comm['境内货源地'] || '', comm['最终目的国'] || '',
+    data['运费数值'] || '', comm['币制'] || ''
+  ];
+  
+  tableRows.push({ cells, data, comm });
+  if (shouldRender) renderTable();
+  return 1;
+}
+
+function renderTable() {
+  if (tableRows.length === 0) {
+    tableBody.innerHTML = `<tr><td colspan="33" class="empty-hint">
+      <div class="icon">📤</div><p>点击上方按钮上传报关单 PDF，或拖拽文件到页面</p>
+      <p style="font-size:12px;margin-top:4px">支持批量上传，数据自动填入表格</p>
+    </td></tr>`;
+    document.getElementById('previewCount').textContent = '0';
+    return;
+  }
+  
+  let html = '';
+  for (let i = 0; i < tableRows.length; i++) {
+    const row = tableRows[i];
+    html += '<tr>';
+    for (let j = 0; j < HEADERS.length; j++) {
+      const val = row.cells[j];
+      const cls = (j === 22) ? 'col-wide' : '';
+      html += '<td class="' + cls + '">' + renderCellValue(val) + '</td>';
+    }
+    html += '<td class="row-actions"><button class="btn-add" onclick="addToAccumulated(' + i + ')" title="添加到已添加数据">✓ 添加</button> <button onclick="removeRow(' + i + ')" title="删除此行">✕</button></td>';
+    html += '</tr>';
+  }
+  tableBody.innerHTML = html;
+  document.getElementById('previewCount').textContent = tableRows.length;
+}
+
+function renderAccumulatedTable() {
+  if (accumulatedRows.length === 0) {
+    accumBody.innerHTML = `<tr><td colspan="33" class="empty-hint">
+      <div class="icon">📋</div><p>暂无已添加数据</p>
+      <p style="font-size:12px;margin-top:4px">在「识别预览」页点击「添加」按钮将数据加入此处</p>
+    </td></tr>`;
+    document.getElementById('accumCount').textContent = '0';
+    return;
+  }
+  let html = '';
+  for (let i = 0; i < accumulatedRows.length; i++) {
+    const row = accumulatedRows[i];
+    html += '<tr>';
+    for (let j = 0; j < HEADERS.length; j++) {
+      const val = row.cells[j];
+      const cls = (j === 22) ? 'col-wide' : '';
+      html += '<td class="' + cls + '">' + renderCellValue(val) + '</td>';
+    }
+    html += '<td class="row-actions"><button onclick="removeFromAccumulated(' + i + ')" title="移除此行">✕</button></td>';
+    html += '</tr>';
+  }
+  accumBody.innerHTML = html;
+  document.getElementById('accumCount').textContent = accumulatedRows.length;
+}
+
+function removeRow(index) {
+  tableRows.splice(index, 1);
+  renderTable();
+  updateStats();
+  if (tableRows.length === 0) btnExport.disabled = true;
+}
+
+function clearAll() {
+  if (tableRows.length > 0 && !confirm('确定清空所有 ' + tableRows.length + ' 行数据？')) return;
+  tableRows = [];
+  renderTable();
+  updateStats();
+  btnExport.disabled = true;
+  fileInput.value = '';
+}
+
+function updateStats() {
+  let totalItems = tableRows.length;
+  let totalValue = 0;
+  for (const row of tableRows) {
+    const v = parseFloat(row.cells[26]); // 总价(美元) 列
+    if (!isNaN(v)) totalValue += v;
+  }
+  document.getElementById('statFiles').textContent = new Set(tableRows.map(r => r.cells[0])).size;
+  document.getElementById('statItems').textContent = totalItems;
+  document.getElementById('statValue').textContent = '$' + totalValue.toFixed(2);
+  document.getElementById('previewCount').textContent = totalItems;
+}
+
+// ============ 通用导出 (带样式) ============
+function exportStyledExcel(rows, filename) {
+  if (rows.length === 0) return;
+  const hdrS = {
+    font: { name: '宋体', sz: 11, bold: true, color: { rgb: 'FFFFFF' } },
+    fill: { patternType: 'solid', fgColor: { rgb: '2D5A87' } },
+    alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+    border: { top:{style:'thin',color:{rgb:'1E3A5F'}}, bottom:{style:'thin',color:{rgb:'1E3A5F'}}, left:{style:'thin',color:{rgb:'1E3A5F'}}, right:{style:'thin',color:{rgb:'1E3A5F'}} }
+  };
+  const cellS = {
+    font: { name: '宋体', sz: 10 },
+    alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+    border: { top:{style:'thin',color:{rgb:'D0D0D0'}}, bottom:{style:'thin',color:{rgb:'D0D0D0'}}, left:{style:'thin',color:{rgb:'D0D0D0'}}, right:{style:'thin',color:{rgb:'D0D0D0'}} }
+  };
+  const stripe = { fill: { patternType: 'solid', fgColor: { rgb: 'F2F7FC' } } };
+  const hdrRow = HEADERS.map(h => ({ v: h, t: 's', s: hdrS }));
+  const dataRows = rows.map((row, ri) => {
+    const isEven = ri % 2 === 0;
+    return row.map((val, ci) => {
+      let s = Object.assign({}, cellS);
+      if (!isEven) Object.assign(s, stripe);
+      if ([14,15,16,23,25,26,30].includes(ci)) s.alignment = { horizontal: 'right', vertical: 'center' };
+      if ([0,1,22].includes(ci)) s.alignment = { horizontal: 'left', vertical: 'center', wrapText: true };
+      const raw = val == null ? '' : String(val).trim();
+      const isNum = NUMERIC_EXPORT_COLUMNS.has(ci) && /^-?\d+(?:\.\d+)?$/.test(raw);
+      return { v: isNum ? Number(raw) : (val != null ? val : ''), t: isNum ? 'n' : 's', s: s };
+    });
+  });
+  const wsData = [hdrRow, ...dataRows];
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  ws['!cols'] = [
+    {wch:22},{wch:18},{wch:14},{wch:16},{wch:12},{wch:12},{wch:14},{wch:14},
+    {wch:20},{wch:16},{wch:18},{wch:14},{wch:18},{wch:16},{wch:8},{wch:10},
+    {wch:10},{wch:10},{wch:14},{wch:18},{wch:6},{wch:14},{wch:40},{wch:8},
+    {wch:6},{wch:10},{wch:12},{wch:12},{wch:14},{wch:14},{wch:12},{wch:8}
+  ];
+  ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+  ws['!autofilter'] = { ref: 'A1:AF' + (rows.length + 1) };
+  ws['!rows'] = [{ hpx: 26 }];
+  for (let i = 0; i < rows.length; i++) ws['!rows'].push({ hpx: 28 });
+  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+  XLSX.writeFile(wb, filename);
+}
+
+// ============ 导出预览 ============
+function downloadExcel() {
+  exportStyledExcel(tableRows.map(r => r.cells), '报关单导入_' + new Date().toISOString().slice(0,10) + '.xlsx');
+}
+
+// ============ 导出已添加 ============
+function downloadAccumulatedExcel() {
+  exportStyledExcel(accumulatedRows.map(r => r.cells), '报关单已添加_' + new Date().toISOString().slice(0,10) + '.xlsx');
+}
+
+function extractCustomsData(items, filename) {
+  const result = { source_file: filename, commodities: [] };
+  const R = result; // alias
+
+  // ---- 通用辅助: 找到标签后, 在其右侧/下方取值 ----
+  function findValueByLabel(labelText, opts = {}) {
+    const { yBelow = [5, 15], xMax = 300 } = opts;
+    // 找标签位置
+    let labelItem = null;
+    for (const it of items) {
+      if (it.text.includes(labelText)) { labelItem = it; break; }
+    }
+    if (!labelItem) return null;
+    // 在标签正下方找值 (y偏移 yBelow[0]~yBelow[1])
+    for (const it of items) {
+      if (it === labelItem) continue;
+      const dy = it.y - labelItem.y;
+      const dx = it.x - labelItem.x;
+      if (dy >= yBelow[0] && dy <= yBelow[1] && Math.abs(dx) < xMax) {
+        const t = it.text;
+        if (t && t.length > 0) return t;
+      }
+    }
+    return null;
+  }
+
+  function findCodeByLabel(labelText, xRange) {
+    // 找标签后, 在 xRange 范围内找 (数字) 格式的代码
+    let labelItem = null;
+    for (const it of items) {
+      if (it.text.includes(labelText)) { labelItem = it; break; }
+    }
+    if (!labelItem) return null;
+    for (const it of items) {
+      if (it === labelItem) continue;
+      if (it.y > labelItem.y - 5 && it.y < labelItem.y + 8 && it.x > xRange[0] && it.x < xRange[1]) {
+        const m = it.text.match(/^\((\d+)\)$/);
+        if (m) return m[1];
+      }
+    }
+    return null;
+  }
+
+  // ---- 表头字段提取 ----
+  // 海关编号 (18位数字, 通常在页面靠上位置)
+  for (const it of items) { if (/^\d{18}$/.test(it.text)) { R['海关编号'] = it.text; break; } }
+  // 提运单号 (4字母+数字)
+  for (const it of items) { if (/^[A-Z]{4}\d{10,}/.test(it.text)) { R['提运单号'] = it.text; break; } }
+  // 境内发货人
+  for (const it of items) { if (it.y > 90 && it.y < 160 && it.x < 220) { if (/有限|公司/.test(it.text) && it.text.length > 4) { R['境内发货人'] = it.text; break; } } }
+  // 海关编码 (8-10位数字+2大写字母, 在括号内)
+  for (const it of items) { const m = it.text.match(/\((\d{8,10}[A-Z]{2})\)/); if (m) { R['海关编码'] = m[1]; break; } }
+  // 出境关别 + 代码
+  R['出境关别'] = findValueByLabel('出境关别');
+  const outCode = findCodeByLabel('出境关别', [280, 340]);
+  if (outCode && R['出境关别']) R['出境关别'] += ' (' + outCode + ')';
+  // 申报日期
+  for (const it of items) { if (it.y > 85 && it.y < 130 && it.x > 480 && it.x < 620) { if (/^\d{8}$/.test(it.text)) { const dt = it.text; R['申报日期'] = dt.slice(0,4)+'-'+dt.slice(4,6)+'-'+dt.slice(6,8); break; } } }
+  // 境外收货人 (标签 y≈114-125, 值在下方, x 靠左)
+  for (const it of items) { if (it.y > 115 && it.y < 155 && it.x < 120) { if (!/有限|公司|\(|境外收货|运输|提运单|发货人|生产销售/.test(it.text) && it.text.length > 1) { R['境外收货人'] = it.text; break; } } }
+  // 运输方式 + 代码
+  R['运输方式'] = findValueByLabel('运输方式');
+  const transCode = findCodeByLabel('运输方式', [280, 320]);
+  if (transCode && R['运输方式']) R['运输方式'] += ' (' + transCode + ')';
+  // 运输工具
+  for (const it of items) { if (it.y > 110 && it.y < 145 && it.x > 370 && it.x < 550) { if (/[A-Z]/.test(it.text) && it.text.length > 5) { R['运输工具名称及航次号'] = it.text; break; } } }
+  // 监管方式 + 代码
+  for (const it of items) { if (it.y > 130 && it.y < 165 && it.x > 240 && it.x < 400) { if (it.text.length > 4 && !/^\d/.test(it.text) && !/^\(/.test(it.text)) { R['监管方式'] = it.text; break; } } }
+  for (const it of items) { if (it.x > 280 && it.x < 440 && it.y > 130 && it.y < 145) { const m = it.text.match(/^\((\d+)\)$/); if (m && R['监管方式']) { R['监管方式'] += ' (' + m[1] + ')'; break; } } }
+  // 合同协议号
+  for (const it of items) { if (it.y > 155 && it.y < 200 && it.x < 220) { if (/^[A-Z0-9]+$/.test(it.text) && it.text.length >= 5) { R['合同协议号'] = it.text; break; } } }
+  // 贸易国/运抵国/指运港/离境口岸
+  const cf = [['贸易国',245,330],['运抵国',370,460],['指运港',500,570],['离境口岸',620,720]];
+  for (const [name,x1,x2] of cf) { for (const it of items) { if (it.y>168&&it.y<185&&it.x>x1&&it.x<x2) { R[name]=it.text; break; } } }
+  for (const it of items) { if (it.y>150&&it.y<170&&it.x>660&&it.x<700) { const m=it.text.match(/^\((\d+)\)$/); if(m&&R['离境口岸']){R['离境口岸']+=' ('+m[1]+')';break;} } }
+  // 包装种类 + 代码
+  R['包装种类'] = findValueByLabel('包装种类');
+  const packCode = findCodeByLabel('包装种类', [55, 100]);
+  if (packCode && R['包装种类']) R['包装种类'] += ' (' + packCode + ')';
+
+  // 件数/毛重/净重 (宽范围)
+  for (const it of items) {
+    if (it.y > 190 && it.y < 205) {
+      if (it.x > 240 && it.x < 290) { const v=parseInt(it.text); if(!isNaN(v)) R['件数']=v; }
+    }
+  }
+  for (const it of items) {
+    if (it.y > 190 && it.y < 205) {
+      if (it.x > 290 && it.x < 330) { const v=parseFloat(it.text); if(!isNaN(v)) R['毛重']=v; }
+    }
+  }
+  for (const it of items) {
+    if (it.y > 190 && it.y < 205) {
+      if (it.x > 370 && it.x < 410) { const v=parseFloat(it.text); if(!isNaN(v)) R['净重']=v; }
+    }
+  }
+  // 成交方式 + 代码
+  for (const it of items) { if(it.y>185&&it.y<215&&it.x>445&&it.x<510){if(!/成交|方式|运费/.test(it.text)){R['成交方式']=it.text;break;} } }
+  for (const it of items) { if(it.y>170&&it.y<200&&it.x>480&&it.x<530){const m=it.text.match(/^\((\d+)\)$/);if(m&&R['成交方式']){R['成交方式']+=' ('+m[1]+')';break;} } }
+  // 运费
+  for (const it of items) { if(it.y>190&&it.y<205&&it.x>500&&it.x<620){if(/USD|\$|\//.test(it.text)){R['运费']=it.text;const nm=it.text.match(/(\d+(?:\.\d+)?)/);if(nm)R['运费数值']=parseFloat(nm[1]);break;} } }
+  // 申报单位
+  for (const it of items) { if(it.y>520&&it.y<560&&it.x<350){if(/报关|有限/.test(it.text)){R['申报单位']=it.text.replace(/^\([^)]+\)/,'').trim();break;} } }
+
+  // ============ 商品明细 (多项) ============
+  // 先找到所有项号 (纯数字, 在商品表区域)
+  const itemMarkers = [];
+  for (const it of items) {
+    // 商品表项号特点: x<60, 纯数字, 排除标签行(y≈275)
+    if (it.x < 60 && /^\d+$/.test(it.text) && it.y > 280) {
+      itemMarkers.push({ itemNo: it.text, y: it.y });
+    }
+  }
+  itemMarkers.sort((a, b) => a.y - b.y);
+  
+  // 如果没找到, 尝试更宽范围
+  if (itemMarkers.length === 0) {
+    for (const it of items) {
+      if (it.x < 80 && /^\d+$/.test(it.text) && it.y > 260 && it.y < 500) {
+        // 排除数字太长的(如海关编号)
+        if (it.text.length <= 3) itemMarkers.push({ itemNo: it.text, y: it.y });
+      }
+    }
+    itemMarkers.sort((a, b) => a.y - b.y);
+  }
+  
+  // 去重 (相同 y±2 的去重)
+  const uniqueMarkers = [];
+  for (const m of itemMarkers) {
+    if (uniqueMarkers.length === 0 || Math.abs(m.y - uniqueMarkers[uniqueMarkers.length-1].y) > 3) {
+      uniqueMarkers.push(m);
+    }
+  }
+  
+  if (uniqueMarkers.length === 0) uniqueMarkers.push({ itemNo: '1', y: 280 });
+
+  const COL_RANGES = [
+    ['item_no', 0, 55], ['hs_code', 55, 110], ['name_spec', 110, 343],
+    ['qty_unit', 343, 429], ['price_tot', 429, 510], ['origin', 510, 575],
+    ['dest', 575, 682], ['domestic', 682, 755], ['tax', 755, 810]
+  ];
+
+  const commodities = [];
+  for (let idx = 0; idx < uniqueMarkers.length; idx++) {
+    const cur = uniqueMarkers[idx];
+    const next = uniqueMarkers[idx + 1];
+    const yMin = cur.y - 5;
+    const yMax = next ? next.y - 3 : cur.y + 40; // 最后一项给40pt空间
+
+    const bandItems = [];
+    for (const it of items) {
+      if (it.y >= yMin && it.y < yMax) bandItems.push(it);
+    }
+
+    // 按列分组
+    const colData = {}; for (const [k] of COL_RANGES) colData[k] = [];
+    for (const it of bandItems) {
+      for (const [key, xmin, xmax] of COL_RANGES) {
+        if (it.x >= xmin && it.x < xmax) { colData[key].push(it.text); break; }
+      }
+    }
+
+    const comm = { '项号': cur.itemNo };
+
+    // 商品编号 + 名称
+    for (const t of colData.hs_code) {
+      const m = t.match(/^(\d{8,14})\s*(.*)/);
+      if (m) { comm['商品编号'] = m[1]; if (m[2] && !comm['商品名称']) comm['商品名称'] = m[2]; }
+    }
+    // 如果没找到商品编号，尝试更宽匹配
+    if (!comm['商品编号']) {
+      for (const t of colData.hs_code) {
+        const m = t.match(/^(\d{8,14})/);
+        if (m) { comm['商品编号'] = m[1]; break; }
+      }
+    }
+    // 规格型号
+    for (const t of colData.name_spec) {
+      if (t.includes('|') && t.length > 10) { comm['规格型号'] = t; break; }
+    }
+    // 数量及单位
+    const qtyParts = [];
+    for (const t of colData.qty_unit) {
+      for (const p of t.split(/\s+/)) {
+        const m = p.match(/^(\d+(?:\.\d+)?)(.+)$/);
+        if (m) qtyParts.push([m[1], m[2]]);
+      }
+    }
+    // 按优先级提取: 件 > 个 > 其他 (第一法定单位优先)
+    const unitPriority = ['件','个','台','套','辆','双','对','组','箱','包','张','把','支','瓶','桶','袋','盒','片','块','条'];
+    let bestUnit = null, bestNum = null, bestPriority = 999;
+    for (const [num, unit] of qtyParts) {
+      const idx = unitPriority.indexOf(unit);
+      if (idx >= 0 && idx < bestPriority) { bestPriority = idx; bestNum = num; bestUnit = unit; }
+      else if (['千克','kg','KG'].includes(unit)) comm['净重'] = num;
+    }
+    if (bestUnit) { comm['数量'] = bestNum; comm['单位'] = bestUnit; }
+    // 单价/总价/币制
+    for (const t of colData.price_tot) {
+      if (/美元|USD/i.test(t)) comm['币制'] = 'USD';
+      else { const v = parseFloat(t); if (!isNaN(v)) { if (v < 100) comm['单价'] = v; else comm['总价'] = v; } }
+    }
+    // 原产国
+    let oN = '', oC = '';
+    for (const t of colData.origin) { if (t.includes('中国')) oN = '中国'; if (/CHN/i.test(t)) oC = '(CHN)'; }
+    if (oN) comm['原产国'] = oN + oC;
+    // 最终目的国
+    let dN = '', dC = '';
+    for (const t of colData.dest) { if (t.includes('美国')) dN = '美国'; if (/USA/i.test(t)) dC = '(USA)'; }
+    if (dN) comm['最终目的国'] = dN + dC;
+    // 境内货源地
+    for (const t of colData.domestic) { if (/宁波|其他|深圳|广州|上海|北京|天津|厦门|青岛|大连|武汉|成都|重庆|苏州|东莞/.test(t)) { comm['境内货源地'] = t; break; } }
+    // 征免
+    const txP = [];
+    for (const t of colData.tax) {
+      if (/照章|征税|免税|保证金/.test(t)) txP.unshift(t);
+      else if (/^\(\d+\)$/.test(t)) txP.push(t);
+    }
+    if (txP.length) comm['征免'] = txP.join(' ');
+    // 类型转换
+    for (const k of ['数量', '净重']) { if (comm[k] && !isNaN(comm[k])) comm[k] = parseFloat(comm[k]); }
+
+    commodities.push(comm);
+  }
+
+  // 出口日期默认同申报日期
+  if (!result['out_date'] && result['申报日期']) result['out_date'] = result['申报日期'];
+  result.commodities = commodities;
+  return result;
+}
+</script>
+<div class="footer">报关单自动化工具 · 数据仅在浏览器本地处理<br>© 2026 MaZhenHai</div>
+</body>
+</html>

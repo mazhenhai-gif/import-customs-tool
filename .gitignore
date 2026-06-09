@@ -1,0 +1,7 @@
+.DS_Store
+__pycache__/
+*.pyc
+
+# 本仓库只上传报关单导入工具，忽略备份和无关分析文件
+import_customs.backup.*.html
+竞品分析_B0F9KY6YLZ_思维导图.*
